@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 0}
+  m_Name: TownDesign
+  m_EditorClassIdentifier: Assembly-CSharp-Editor:MysticMap.EditorTools:TownDesignAsset
+  savedUtc: 2026-10-31 14:21
+  source: generated
+  center: {x: 500, y: 520}
+  fortHX: 78
+  fortHZ: 64

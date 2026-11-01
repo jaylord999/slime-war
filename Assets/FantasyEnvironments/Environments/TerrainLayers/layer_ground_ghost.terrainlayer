@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8d1e5dd9f4a4a5e4c9b0e3c6a8f2d1b7, type: 3}
+  m_Name: layer_ground_ghost
+  m_EditorClassIdentifier: 
+  m_Smoothness: 0
+  m_Metallic: 0
+  m_NormalScale: 1
+  m_DiffuseRemapMin: {x: 0, y: 0, z: 0, w: 0}
+  m_DiffuseRemapMax: {x: 1, y: 1, z: 1, w: 1}
+  m_MaskMapRemapMin: {x: 0, y: 0, z: 0, w: 0}
+  m_MaskMapRemapMax: {x: 1, y: 1, z: 1, w: 1}
+  m_Specular: {r: 0, g: 0, b: 0, a: 0}
+  m_MetallicGlossMap: {fileID: 0}
+  m_SpecularMap: {fileID: 0}
+  m_DiffuseTexture: {fileID: 0}
+  m_NormalMapTexture: {fileID: 0}
+  m_MaskMapTexture: {fileID: 0}
+  m_TileSize: {x: 1, y: 1}
+  m_TileOffset: {x: 0, y: 0}
+  m_SpecularTint: {r: 0, g: 0, b: 0, a: 0}
