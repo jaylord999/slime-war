@@ -119,11 +119,47 @@ namespace MysticMap.EditorTools
                     if (p != null) a.pieces.Add(p.Clone());
             if (source != null) a.source = source;
             a.center = MysticMapBuilder.Village;
-            a.fortHX = MysticMapBuilder.FortHX;
-            a.fortHZ = MysticMapBuilder.FortHZ;
+            // The GROWN size (TownHX / TownHZ already include TownAreaScale), so anything reading
+            // the stored design - and the runtime TownBounds - matches the town that is standing.
+            a.fortHX = MysticMapBuilder.TownHX;
+            a.fortHZ = MysticMapBuilder.TownHZ;
             a.savedUtc = System.DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm");
+
+            StampRuntimeBounds();
+
             EditorUtility.SetDirty(a);
             AssetDatabase.SaveAssets();
+        }
+
+        /// <summary>
+        /// Writes the real town size into <see cref="MysticMap.World.TownBounds"/> and stores it in
+        /// the scene (a tiny hidden object), so runtime scripts such as RoadsideLife and the glow
+        /// flowers use the size of the town that is actually built instead of a stale copy.
+        /// </summary>
+        public static void StampRuntimeBounds()
+        {
+            TownBounds.Set(MysticMapBuilder.Village,
+                           MysticMapBuilder.TownHX, MysticMapBuilder.TownHZ);
+
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
+            if (!scene.IsValid()) return;
+
+            const string name = "Town Bounds";
+            GameObject go = null;
+            foreach (var root in scene.GetRootGameObjects())
+                if (root != null && root.name == name) { go = root; break; }
+
+            if (go == null) go = new GameObject(name);
+
+            var stamp = go.GetComponent<TownBoundsStamp>();
+            if (stamp == null) stamp = go.AddComponent<TownBoundsStamp>();
+
+            stamp.center = MysticMapBuilder.Village;
+            stamp.halfX = MysticMapBuilder.TownHX;
+            stamp.halfZ = MysticMapBuilder.TownHZ;
+
+            EditorUtility.SetDirty(stamp);
+            UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
         }
 
         /// <summary>Removes the stored design (the next map build then grows the default town).</summary>

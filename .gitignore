@@ -35,6 +35,13 @@ Desktop.ini
 # ===== local copies / backups (not part of the build) =====
 /_backups/
 
+# ===== unrelated sibling projects + node_modules (never part of this repo) =====
+/auto clicker/
+node_modules/
+
+# ===== local scratch tooling =====
+/graphify-out/
+
 # ===== code-graph tool output (regenerated locally) =====
 /graphify-out/
 

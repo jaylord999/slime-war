@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
+using MysticMap.World;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -43,7 +44,7 @@ namespace MysticMap.EditorTools
 
         // Terrain layers, in the order they are added to the TerrainData. The order IS the
         // alphamap channel order used by ApplySplatmap / PaintTownGround, so it is written down
-        // once here: 0 grass, 1 soil, 2 road (cobbles), 3 stone (slabs), 4 rock, 5 ghost.
+        // once here: 0 grass, 1 soil, 2 road (cobbles), 3 stone (slabs), 4 rock.
         const string LAYER_GRASS = "layer_ground_grass";
         const string LAYER_SOIL = "layer_ground_soil";
         // Grey cracked rock: steep ground and the border mountains.
@@ -52,13 +53,9 @@ namespace MysticMap.EditorTools
         const string LAYER_STONE = "layer_ground_stones";
         // Sandy cobbles - the streets, the colonnade under the walls and the kerb.
         const string LAYER_ROAD = "layer_ground_road";
-        // Invisible wrap layer (no diffuse texture). It lets the town floor carry a sixth
-        // texture without adding a seventh alphamap channel to the TerrainData; the extra
-        // floor textures are stacked through the material instead (see FloorPalette).
-        const string LAYER_GHOST = "layer_ground_ghost";
 
-        const int LAYER_COUNT = 6;
-        const int L_GRASS = 0, L_SOIL = 1, L_ROAD = 2, L_STONE = 3, L_ROCK = 4, L_GHOST = 5;
+        const int LAYER_COUNT = 5;
+        const int L_GRASS = 0, L_SOIL = 1, L_ROAD = 2, L_STONE = 3, L_ROCK = 4;
 
         // Town / fortress (in the middle of the map)
         internal static readonly Vector2 Village = new Vector2(500f, 520f);
@@ -237,6 +234,24 @@ namespace MysticMap.EditorTools
         }
 
         /// <summary>The town was changed in the scene: capture that look as the stored design.</summary>
+        [MenuItem("MCP/Town/6. Capture the town from the scene (repairs an empty design)")]
+        public static void CaptureTownDesignMenu()
+        {
+            int count = CaptureTownDesign();
+            if (count == 0) return;
+
+            // The captured town is the truth: stamp its real size for the runtime scripts and
+            // re-bake the house footprints, so a design that had gone empty heals in one click.
+            TownDesignState.StampRuntimeBounds();
+            EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
+            AssetDatabase.SaveAssets();
+
+            BakeHouseSideLife();
+            Debug.Log("[MysticMap] Captured " + count + " town pieces, stamped the town bounds and " +
+                      "re-baked the house-side life.");
+        }
+
+        /// <summary>The town was changed in the scene: capture that look as the stored design.</summary>
         public static int CaptureTownDesign()
         {
             var town = GameObject.Find(TownDesignState.TownRootName);
@@ -283,8 +298,7 @@ namespace MysticMap.EditorTools
                 LoadLayer(LAYER_SOIL),    // 1 - dark dirt under everything built
                 LoadLayer(LAYER_ROAD),    // 2 - sandy cobbles: streets, colonnade and kerb
                 LoadLayer(LAYER_STONE),   // 3 - flat paving slabs: the town floor
-                LoadLayer(LAYER_ROCK),    // 4 - grey cracked rock: steep ground, mountains
-                LoadLayer(LAYER_GHOST)    // 5 - invisible wrap for the top floor texture
+                LoadLayer(LAYER_ROCK)     // 4 - grey cracked rock: steep ground, mountains
             };
 
             ApplyHeights();
@@ -439,7 +453,6 @@ namespace MysticMap.EditorTools
             int iRoad = LayerIndex(layers, LAYER_ROAD, L_ROAD, n);
             int iStone = LayerIndex(layers, LAYER_STONE, L_STONE, n);
             int iRock = LayerIndex(layers, LAYER_ROCK, L_ROCK, n);
-            int iGhost = LayerIndex(layers, LAYER_GHOST, L_GHOST, n);
 
             float[,,] amap = new float[res, res, n];
             TownGroundPalette pal = BuildTownPalette();
@@ -468,55 +481,71 @@ namespace MysticMap.EditorTools
                     // texture streets through it. The ground is a patchwork of textures (dirt,
                     // slabs, cobbles, rock) so it has life and depth; the streets are painted
                     // on top of the mix and stay clean lines between the houses.
-                    float lGrass = g, lSoil = soil, lRoad = 0f, lStone = 0f, lRock = rock, lGhost = 0f;
+                    float lGrass = g, lSoil = soil, lRoad = 0f, lStone = 0f, lRock = rock;
                     TownSurface(wx, wz, rd, pal, out float roadP, out float floorP);
                     if (floorP > 0f)
                     {
                         float k = floorP;
 
-                        // The town floor is a PATCHWORK of textures, not one flat sheet: dirt,
-                        // slabs, cobbles and grey rock spread over it in broad, organic patches
-                        // (see FloorPatch). Streets are then painted on top of the mix.
+                        // The town floor is a PATCHWORK of textures, not one flat sheet: slabs,
+                        // cobbles and bare rock spread over the dirt base in broad organic
+                        // patches (see FloorPatch). Streets are then painted on top of the mix.
                         float heave = Mathf.PerlinNoise(wx * 0.13f + 617f, wz * 0.13f + 733f);
                         float fGround = Mathf.Max(0f, 1f - roadP);
 
-                        // One texture per patch, jittered per square metre so no two patches
-                        // land on the same grid even though the regions are aligned.
+                        // One texture per patch, jittered per metre so no two patches land on
+                        // the same grid even though the regions are aligned.
                         float gw = wx * 0.20f + Mathf.PerlinNoise(wx * 0.71f, wz * 0.67f) * 0.55f;
                         float gh = wz * 0.20f + Mathf.PerlinNoise(wx * 0.63f + 31f, wz * 0.73f + 17f) * 0.55f;
                         float keep = FloorPatch(gw, gh);
 
-                        float txF = 1f - ProcNoiseLite.TileNoise(gw * 0.55f, gh * 0.55f, 5.5f);
                         float stF = 1f - ProcNoiseLite.TileNoise(gw * 0.47f + 11f, gh * 0.47f + 7f, 4.5f);
                         float cgF = 1f - ProcNoiseLite.TileNoise(gw * 0.62f + 23f, gh * 0.62f + 29f, 6.5f);
+                        float rkF = 1f - ProcNoiseLite.TileNoise(gw * 0.55f + 41f, gh * 0.55f + 53f, 5.5f);
 
-                        txF = Mathf.Clamp01((txF - 0.80f) / 0.12f) * keep;
                         stF = Mathf.Clamp01((stF - 0.82f) / 0.12f) * keep;
                         cgF = Mathf.Clamp01((cgF - 0.84f) / 0.12f) * keep;
+                        rkF = Mathf.Clamp01((rkF - 0.86f) / 0.12f) * keep;
 
-                        float patchSum = txF + stF + cgF;
-                        if (patchSum > 1f) { txF /= patchSum; stF /= patchSum; cgF /= patchSum; patchSum = 1f; }
+                        float patchSum = stF + cgF + rkF;
+                        if (patchSum > 1f) { stF /= patchSum; cgF /= patchSum; rkF /= patchSum; patchSum = 1f; }
                         float px = Mathf.Max(0f, fGround - patchSum);
 
-                        // The base ground of each patch: mostly dirt, the odd grassed corner,
-                        // and bare rock where the ground has broken up.
+                        // The base ground of each patch: mostly dirt, the odd grassed corner.
                         float yardGrass = Mathf.Clamp01((heave - 0.84f) / 0.16f) * px * 0.32f;
-                        float yardRock = Mathf.Clamp01((heave - 0.90f) / 0.10f) * px * 0.20f;
 
                         float baseG = Mathf.Max(0f, lGrass) * (1f - k) + yardGrass * k;
-                        float baseR = lRock * (1f - k) + yardRock * k;
-                        float baseS = lSoil * (1f - k) + Mathf.Max(0f, px - yardGrass - yardRock) * k;
+                        float baseS = lSoil * (1f - k) + Mathf.Max(0f, px - yardGrass) * k;
 
-                        // Spread the dirt patches out by mixing the base ground into the
-                        // neighbouring texture patches, so they are a mix rather than stamping.
-                        float b0 = 0.45f * (1f - keep), b1 = 0.30f * (1f - keep), b2 = 0.25f * (1f - keep);
+                        // Feathered edges: the dirt of a patch bleeds into the neighbouring
+                        // textures so the patches read as a mix, not as stamped shapes.
+                        float bleed = Mathf.Max(0f, 1f - keep);
+                        float b0 = 0.45f * bleed, b1 = 0.30f * bleed;
 
                         lGrass = baseG;
-                        lSoil = baseS * keep + baseS * b1 + baseS * b2;
-                        lRock = baseR;
+                        lSoil = baseS * keep;
                         lStone = (stF + baseS * b0) * k;
                         lRoad += (cgF + baseS * b1) * k;
-                        lGhost = (txF + baseS * b2) * k;
+                        lRock += (rkF + baseS * (bleed - b0 - b1)) * k;
+
+                        // ---- rocky bed around each building -------------------
+                        // A soft, ragged band of rock texture hugging every house wall, so a
+                        // building sits on a broken stone foundation and separates from the
+                        // surrounding ground. Painted over the patchwork, kept off the streets.
+                        float ring = HouseRockRing(wx, wz, pal);
+                        if (ring > 0f)
+                        {
+                            float toRock = Mathf.Min(ring, 1f - roadP) * k;
+                            if (toRock > 0f)
+                            {
+                                lRock += toRock;
+                                float keepRest = Mathf.Max(0f, 1f - toRock);
+                                lGrass *= keepRest;
+                                lSoil *= keepRest;
+                                lStone *= keepRest;
+                                lRoad *= keepRest;
+                            }
+                        }
                     }
 
                     float road = Mathf.Clamp01((RoadHalfWidth + 1.5f - rd) / 1.5f);
@@ -526,7 +555,6 @@ namespace MysticMap.EditorTools
                     AddWeight(amap, z, x, iRoad, Mathf.Max(0f, lRoad) * remain + road);
                     AddWeight(amap, z, x, iStone, Mathf.Max(0f, lStone) * remain);
                     AddWeight(amap, z, x, iRock, Mathf.Max(0f, lRock) * remain);
-                    AddWeight(amap, z, x, iGhost, Mathf.Max(0f, lGhost) * remain);
 
                     float sum = 0f;
                     for (int k = 0; k < n; k++) sum += amap[z, x, k];
@@ -587,6 +615,48 @@ namespace MysticMap.EditorTools
             // A deterministic wobble so the patches are blobs, not circles.
             float wobble = (Hash01(tx * 13 + 9, tz * 17 + 5) - 0.5f) * 0.30f;
             return Mathf.Clamp01((r - 1f + wobble) / 0.30f);
+        }
+
+        /// <summary>
+        /// Rocky bed around the buildings (0..1). A soft band that starts at the house wall and
+        /// fades out a couple of metres away, with its outer edge pushed around by noise so it is
+        /// a ragged scatter of broken ground rather than a neat outline of the footprint.
+        /// </summary>
+        static float HouseRockRing(float wx, float wz, TownGroundPalette pal)
+        {
+            if (pal.buildings == null || pal.buildings.Count == 0) return 0f;
+
+            const float inner = 0.10f;   // rock starts right at the wall foot (m)
+            const float outer = 2.6f;    // ... and thins out this far from the wall (m)
+
+            float best = 0f;
+            for (int i = 0; i < pal.buildings.Count; i++)
+            {
+                Bounds b = pal.buildings[i];
+
+                // Cheap bounding reject first: most houses are nowhere near this pixel.
+                if (Mathf.Abs(wx - b.center.x) > b.extents.x + outer + 1.5f) continue;
+                if (Mathf.Abs(wz - b.center.z) > b.extents.z + outer + 1.5f) continue;
+
+                float dx = Mathf.Max(0f, Mathf.Abs(wx - b.center.x) - b.extents.x);
+                float dz = Mathf.Max(0f, Mathf.Abs(wz - b.center.z) - b.extents.z);
+                if (dx > outer + 1.5f || dz > outer + 1.5f) continue;
+
+                float d = Mathf.Sqrt(dx * dx + dz * dz);
+
+                // Push the band's reach around with two noise octaves, so the edge is ragged.
+                float warp = (Mathf.PerlinNoise(wx * 0.55f + b.center.x * 0.13f, wz * 0.55f + b.center.z * 0.11f) - 0.5f) * 1.5f
+                           + (Mathf.PerlinNoise(wx * 1.9f + 71f, wz * 1.9f + 37f) - 0.5f) * 0.5f;
+
+                float t = Mathf.Clamp01((outer + warp - d) / (outer - inner));
+                float ring = t * t * (3f - 2f * t);       // smoothstep, soft at both ends
+
+                // Per-house strength, so not every building gets an identical bed.
+                ring *= 0.68f + 0.22f * Hash01(Mathf.RoundToInt(b.center.x), Mathf.RoundToInt(b.center.z));
+
+                if (ring > best) best = ring;
+            }
+            return best;
         }
 
         /// <summary>Stable pseudo-random value in 0..1 for a pair of integers.</summary>
@@ -1538,7 +1608,13 @@ namespace MysticMap.EditorTools
             if (Vector2.Distance(new Vector2(x, z), Village) < PlazaRadius + 3f) return false;
             if (DistanceToSpawn(x, z) < 10f) return false;
             if (x < 15f || x > MapSize - 15f || z < 15f || z > MapSize - 15f) return false;
-            return true;                                  // rocks live anywhere, esp. slopes
+
+            // Keep the huge boulders OUT of the town. Rock1/2/3 are big cliff rocks: dropped on
+            // the town floor they read as boulders sitting in the streets and swamp the pebbles.
+            // The town gets its own small stones around each house instead (HouseSideLife).
+            if (TownBounds.Contains(x, z, 4f, TownHX, TownHZ)) return false;
+
+            return true;                                  // rocks live anywhere else, esp. slopes
         }
 
         // =========================================================================
@@ -1621,8 +1697,9 @@ namespace MysticMap.EditorTools
             float sMin, sMax;
             if (group == "stones" || group == "rocks")
             {
-                names = new[] { "Rock1", "Rock2", "Rock3", "Stone1", "Stone2", "Stone3" };
-                sMin = 0.6f; sMax = 2.2f;
+                // Stones are the small ones; the big cliff rocks stay out of the town.
+                names = new[] { "Stone1", "Stone2", "Stone3", "Stone1_detail" };
+                sMin = 0.25f; sMax = 0.6f;
             }
             else if (group == "flowers")
             {

@@ -1,9 +1,11 @@
 fileFormatVersion: 2
-guid: 6c1a7d3e9b2f4a5c8d0e1f2a3b4c5d6e
-TerrainLayerImporter:
+guid: 7b1c4d2e8f5a4c3bb09e6d1a5c2f7e41
+MonoImporter:
   externalObjects: {}
   serializedVersion: 2
-  buildTarget: DefaultTexturePlatform
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
   userData: 
   assetBundleName: 
   assetBundleVariant: 

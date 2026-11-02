@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using MysticMap.World;
 using UnityEngine;
 
 namespace MysticMap
@@ -145,8 +146,10 @@ namespace MysticMap
 
                     // Keep roads bare: no flowers/grass growing on or right beside a road.
                     if (keepRoadsClear && RoadDist(x, z) < roadClear) continue;
-                    // Keep the walled town clear too.
-                    if (keepTownClear && Mathf.Abs(nx) < 59f && Mathf.Abs(nz) < 49f) continue;
+                    // Keep the walled town clear too. TownBounds carries the real town size, so
+                    // this still covers the town after it has been grown (the old numbers were
+                    // the small town's, which let flowers grow through the outer houses).
+                    if (keepTownClear && TownBounds.Contains(x, z, 2f)) continue;
 
                     float presence = (rnd & 0xFFFF) / 65535f;
                     if (presence > density) { Release(key); continue; }      // empty spot

@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
 using MysticMap;
+using MysticMap.World;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -42,11 +43,16 @@ namespace MysticMap.EditorTools
         /// <summary>The spider prefab this tool builds (used by the scene installer and the tuning window).</summary>
         public const string PrefabPath = SpiderDir + "/FantasySpider.prefab";
 
+        /// <summary>The boss prefab (the same spider, much bigger, with <see cref="SpiderBoss"/> on it).</summary>
+        public const string BossPrefabPath = SpiderDir + "/SpiderBoss.prefab";
+
+        // ---- Scene ----------------------------------------------------------
+        static readonly string BossName = "Spider Boss";
+
         // ---- Effect pack ----------------------------------------------------
         const string HovlRoot = "Assets/Hovl Studio/Magic effects pack/Prefabs";
         const string PropsDir = "Assets/FantasyEnvironments/Environments/Prefabs";
 
-        // ---- Scene ----------------------------------------------------------
         const string SceneName = "MysticMap";
         const string DirectorName = "Spider Director";
 
@@ -102,6 +108,20 @@ namespace MysticMap.EditorTools
         public static void AddToSceneMenu()
         {
             OpenGameScene();       // make sure we are editing the game scene, not some other one
+            Install(true);
+        }
+
+        [MenuItem("MCP/Enemies/3. Build the spider boss prefab (big, stationary)")]
+        public static void BuildBossPrefabMenu()
+        {
+            GameObject prefab = BuildBossPrefab(true);
+            if (prefab != null) Selection.activeObject = prefab;
+        }
+
+        [MenuItem("MCP/Enemies/4. Add the spider boss to the scene")]
+        public static void AddBossToSceneMenu()
+        {
+            OpenGameScene();
             Install(true);
         }
 
@@ -161,6 +181,139 @@ namespace MysticMap.EditorTools
         // =====================================================================
         /// <summary>Builds (or rebuilds) the spider prefab from the pack at the default size.</summary>
         public static GameObject BuildPrefab(bool report) => BuildPrefab(report, 0f);
+
+        /// <summary>
+        /// Builds the boss prefab: the very same spider model, blown up much bigger, with a
+        /// <see cref="SpiderBoss"/> on it instead of the hunting <see cref="SpiderEnemy"/>.
+        ///
+        /// The boss never walks, so it gets no CharacterController - only a capsule trigger so the
+        /// player's magic can find it - and it owns a bigger health pool, the venom spell kit and a
+        /// reference to the normal spider prefab it summons.
+        /// </summary>
+        public static GameObject BuildBossPrefab(bool report)
+        {
+            EnsureFolders();
+
+            var modelAsset = AssetDatabase.LoadAssetAtPath<GameObject>(ModelPath);
+            if (modelAsset == null)
+            {
+                if (report) Debug.LogWarning("[MysticMap.Spiders] No model at " + ModelPath + ".");
+                return null;
+            }
+
+            var root = new GameObject("SpiderBoss");
+            root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+
+            // The model hangs inside a "Model (feet rig)" object, exactly like the boss builds it at
+            // runtime: the rig is moved onto the ground by the foot solver and carries the breathing
+            // bob, while the model keeps the prefab's own offset inside it.
+            var rig = new GameObject("Model (feet rig)");
+            rig.transform.SetParent(root.transform, false);
+
+            var model = (GameObject)Object.Instantiate(modelAsset, rig.transform);
+            model.name = "Spider Model";
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localRotation = Quaternion.identity;
+            model.transform.localScale = Vector3.one;
+
+            StripBakedHelpers(model);
+
+            // Fitted to exactly the plain spider's real-world size; SpiderBoss multiplies the MODEL by
+            // sizeMultiplier (4x) on top, so the boss is a normal spider that is simply much bigger.
+            Vector3 size = FitModel(model.transform, TargetSpan);
+
+            Animation animation = BuildAnimation(model);
+            if (animation != null) animation.playAutomatically = true;   // it idles on its own while it waits
+
+            var capsule = root.AddComponent<CapsuleCollider>();
+            capsule.isTrigger = true;
+            capsule.center = new Vector3(0f, size.y * 2f, 0f);           // room for the 4x model
+            capsule.height = Mathf.Max(1f, size.y * 4f);
+            capsule.radius = Mathf.Max(0.5f, Mathf.Max(size.x, size.z) * 0.75f);
+
+            var health = root.AddComponent<Health>();
+            health.maxHealth = 900f;
+            health.destroyOnDeath = true;
+            health.destroyDelay = 2f;
+            health.hitEffect = LoadEffect("Hits and explosions", "Green hit");
+            health.deathEffect = LoadEffect("Hits and explosions", "Explosion");
+            health.flashColor = new Color(0.7f, 1f, 0.75f, 1f);
+            health.stirEnvironment = true;
+            health.environmentRadius = 8f;
+
+            var boss = root.AddComponent<SpiderBoss>();
+            boss.model = model.transform;
+            boss.hitMask = ~0;
+            boss.range = 45f;                       // a boss this big throws its magic a long way
+            boss.impactEffect = LoadEffect("Hits and explosions", "Green hit");
+            boss.spawnEffect = LoadEffect("Sparks", "Sparks green");
+            boss.summonBurst = LoadEffect("Sparks", "Sparks explode green");
+            boss.spells = BuildBossKit();
+            boss.minionPrefabs = new[] { AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath) };
+
+            GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, BossPrefabPath);
+            Object.DestroyImmediate(root);
+            AssetDatabase.SaveAssets();
+
+            if (report)
+            {
+                Debug.Log(saved != null
+                    ? "[MysticMap.Spiders] Built " + BossPrefabPath + " (spider boss, " +
+                      (size.x * 4f).ToString("0.0") + " x " + (size.z * 4f).ToString("0.0") +
+                      " m across at 4x, stationary caster + summoner)."
+                    : "[MysticMap.Spiders] Could not save the spider boss prefab.");
+            }
+
+            return saved;
+        }
+
+        /// <summary>
+        /// The boss's spell kit, the same way the slime boss has one: each spell owns a distance band
+        /// so the fight mixes it up - a venom bolt for mid range, a burst under the player, a web
+        /// nova for when they hug it and a shockwave that tears up the ground around it.
+        /// </summary>
+        static SpiderBoss.BossSpell[] BuildBossKit()
+        {
+            return new[]
+            {
+                new SpiderBoss.BossSpell
+                {
+                    name = "Venom Slash",
+                    kind = SpiderBoss.BossSpellKind.Projectile,
+                    effect = LoadEffect("AoE effects", "AoE slash green"),
+                    minRange = 5f, maxRange = 34f, weight = 1.4f,
+                    damage = 24f, radius = 1.6f, speed = 19f, hugGround = true, hugHeight = 0.9f,
+                    knockback = 2f, environmentScale = 0.8f, effectScale = 0.9f
+                },
+
+                new SpiderBoss.BossSpell
+                {
+                    name = "Venom Burst",
+                    kind = SpiderBoss.BossSpellKind.GroundCast,
+                    effect = LoadEffect("Sparks", "Sparks explode green"),
+                    minRange = 0f, maxRange = 36f, weight = 1f,
+                    damage = 20f, radius = 3.4f, environmentScale = 0.9f, effectScale = 1.1f
+                },
+
+                new SpiderBoss.BossSpell
+                {
+                    name = "Web Nova",
+                    kind = SpiderBoss.BossSpellKind.Nova,
+                    effect = LoadEffect("AoE effects", "Plexus AoE"),
+                    minRange = 0f, maxRange = 8f, weight = 1.6f,
+                    damage = 22f, radius = 6.5f, knockback = 5f, effectScale = 1f
+                },
+
+                new SpiderBoss.BossSpell
+                {
+                    name = "Brood Shockwave",
+                    kind = SpiderBoss.BossSpellKind.Shockwave,
+                    effect = LoadEffect("AoE effects", "Ground AOE explosion"),
+                    minRange = 0f, maxRange = 26f, weight = 0.7f,
+                    damage = 10f, radius = 10f, environmentScale = 1.5f, effectScale = 1f
+                }
+            };
+        }
 
         /// <summary>Builds (or rebuilds) the spider prefab from the pack.</summary>
         /// <param name="legSpan">Metres across the legs (0 = the default size from the tuning window).</param>
@@ -601,7 +754,20 @@ namespace MysticMap.EditorTools
 
             if (prefab == null) return;
 
-            bool changed = EnsurePlayerVitals(players[0].gameObject);
+            bool changed = false;
+
+            // Make sure the boss prefab exists (and is up to date - an older build has the mesh
+            // hanging in the air), so the boss in the scene is always the current one.
+            GameObject bossPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(BossPrefabPath);
+            if (bossPrefab == null || bossPrefab.GetComponent<SpiderBoss>()?.model == null ||
+                bossPrefab.transform.Find("Model (feet rig)") == null)
+            {
+                BuildBossPrefab(false);
+                changed = true;
+            }
+
+            changed |= EnsurePlayerVitals(players[0].gameObject);
+            changed |= EnsureBoss(players[0].transform);
 
             var director = GameObject.Find(DirectorName);
             if (director == null)
@@ -659,6 +825,112 @@ namespace MysticMap.EditorTools
             else SpiderSettingsWindow.MarkNeedsFit();
 
             return prefab;
+        }
+
+        /// <summary>
+        /// Puts the Spider Boss into the scene (once): a big, stationary spider that faces the player,
+        /// casts its venom spells and summons smaller spiders to do the running.
+        /// Running the tool again keeps the settings you tuned - it only fills in what is missing.
+        /// </summary>
+        static bool EnsureBoss(Transform player)
+        {
+            var existing = Object.FindObjectsByType<SpiderBoss>(FindObjectsInactive.Include);
+            if (existing != null && existing.Length > 0)
+            {
+                for (int i = 0; i < existing.Length; i++)
+                {
+                    SpiderBoss boss = existing[i];
+                    if (boss == null) continue;
+
+                    bool touched = false;
+
+                    if (boss.target == null) { boss.target = player; touched = true; }
+
+                    if (boss.minionPrefabs == null || boss.minionPrefabs.Length == 0)
+                    {
+                        boss.minionPrefabs = new[] { AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath) };
+                        touched = true;
+                    }
+
+                    // A boss that was placed too far away (or under the terrain) is put where it belongs,
+                    // in front of the player where the fight can actually be found.
+                    Vector3 here = boss.transform.position;
+                    bool tooFar = FlatDistance(here, player.position) > 60f;
+                    bool wrongHeight = Mathf.Abs(here.y - player.position.y) > 25f;
+
+                    if (tooFar || wrongHeight)
+                    {
+                        boss.transform.position = BossSpot(player.position);
+                        touched = true;
+                    }
+
+                    if (touched) EditorUtility.SetDirty(boss);
+                    return touched;
+                }
+            }
+
+            var bossPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(BossPrefabPath);
+            if (bossPrefab == null) return false;
+
+            // Somewhere open and a good walk from the player, so the fight is found, not stumbled into.
+            Vector3 spot = BossSpot(player.position);
+
+            var bossObject = (GameObject)PrefabUtility.InstantiatePrefab(bossPrefab);
+            if (bossObject == null) return false;
+
+            bossObject.name = BossName;
+            bossObject.transform.position = spot;
+            bossObject.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+
+            Undo.RegisterCreatedObjectUndo(bossObject, "Add the spider boss");
+
+            var boss = bossObject.GetComponent<SpiderBoss>();
+            if (boss != null)
+            {
+                boss.target = player;
+                if (boss.minionPrefabs == null || boss.minionPrefabs.Length == 0)
+                    boss.minionPrefabs = new[] { AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath) };
+
+                EditorUtility.SetDirty(boss);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// A spot for the boss: 18-26 m from the player (inside its own 45 m range, but not on top of
+        /// them), outside the town, on the world's own ground height (the same field the chunks are
+        /// built from), so it never ends up under the terrain even when the ground around it has not
+        /// been streamed in yet.
+        /// </summary>
+        static Vector3 BossSpot(Vector3 player)
+        {
+            var chunks = Object.FindFirstObjectByType<ChunkManager>();
+
+            for (int attempt = 0; attempt < 40; attempt++)
+            {
+                float angle = Random.value * Mathf.PI * 2f;
+                float radius = Random.Range(18f, 26f);
+
+                float x = player.x + Mathf.Cos(angle) * radius;
+                float z = player.z + Mathf.Sin(angle) * radius;
+
+                if (TownBounds.ContainsPadded(x, z)) continue;
+
+                float y = chunks != null ? chunks.SampleHeight(x, z) : player.y;
+                return new Vector3(x, y, z);
+            }
+
+            // Nothing open found: just put it in front of the player a fair way away.
+            Vector3 ahead = player + Vector3.forward * 20f;
+            if (chunks != null) ahead.y = chunks.SampleHeight(ahead.x, ahead.z);
+            return ahead;
+        }
+
+        static float FlatDistance(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         /// <summary>Makes the slime hurtable (Health) and adds the feedback component.</summary>

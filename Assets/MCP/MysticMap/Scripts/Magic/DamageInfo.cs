@@ -103,6 +103,17 @@ namespace MysticMap
         public static int ApplyRadial(Vector3 center, float radius, DamageInfo info, Transform ignore,
                                       LayerMask mask, List<Vector3> hitPoints = null)
         {
+            return ApplyRadial(center, radius, info, ignore, mask, hitPoints, null);
+        }
+
+        /// <summary>
+        /// <see cref="ApplyRadial(Vector3,float,DamageInfo,Transform,LayerMask,List{Vector3})"/> with a
+        /// list of friendly objects that a blast fired by their own side must not hurt (a boss's nova
+        /// should not wipe out the slimes it just summoned).
+        /// </summary>
+        public static int ApplyRadial(Vector3 center, float radius, DamageInfo info, Transform ignore,
+                                      LayerMask mask, List<Vector3> hitPoints, IList<GameObject> spared)
+        {
             if (radius <= 0f) return 0;
 
             int count = Physics.OverlapSphereNonAlloc(
@@ -116,6 +127,7 @@ namespace MysticMap
                 Collider col = Overlaps[i];
                 if (col == null) continue;
                 if (ignore != null && (col.transform == ignore || col.transform.IsChildOf(ignore))) continue;
+                if (IsSpared(col.transform, spared)) continue;
 
                 IDamageable victim = Find(col);
                 if (victim == null || !victim.IsAlive) continue;
@@ -137,6 +149,20 @@ namespace MysticMap
             }
 
             return hits;
+        }
+
+        /// <summary>True when a transform belongs to one of the spared objects.</summary>
+        static bool IsSpared(Transform t, IList<GameObject> spared)
+        {
+            if (spared == null || spared.Count == 0 || t == null) return false;
+
+            for (int i = 0; i < spared.Count; i++)
+            {
+                GameObject go = spared[i];
+                if (go == null) continue;
+                if (t == go.transform || t.IsChildOf(go.transform)) return true;
+            }
+            return false;
         }
 
         /// <summary>Rotation that makes an effect's +Z look along the given surface normal.</summary>

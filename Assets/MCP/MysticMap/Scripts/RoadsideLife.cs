@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using MysticMap.World;
 using UnityEngine;
 
 namespace MysticMap
@@ -49,8 +50,11 @@ namespace MysticMap
         const float ClusterMax = 12f;
         const float VergeMax = 340f;
         const float RoadEdge = 4f;                 // approx road half-width (m)
-        const float FortX = 57f, FortZ = 47f;      // fortress footprint (half extents)
-        static readonly Vector2 Town = new Vector2(500f, 520f);
+
+        // The town's real size comes from TownBounds (stamped by the editor from the town that
+        // is actually built), so these props stay out of the town however big it grows.
+        // The fallbacks here are only used before the scene has ever been stamped.
+        const float FortXFallback = 78f, FortZFallback = 64f;
 
         List<Vector2[]> _roads;
         float _despawnDist;
@@ -180,8 +184,8 @@ namespace MysticMap
                 Vector2 p2 = A + dir * t + perp * off;
 
                 // Keep clear of the walled town (no flowers/carts over houses or the square).
-                float dx = Mathf.Abs(p2.x - Town.x), dz = Mathf.Abs(p2.y - Town.y);
-                if (dx < FortX + 2f && dz < FortZ + 2f) continue;
+                // TownBounds carries the real size, so this holds for the grown town too.
+                if (TownBounds.Contains(p2.x, p2.y, 2f, FortXFallback, FortZFallback)) continue;
 
                 float y = SampleGround(p2.x, p2.y, c.y);
                 p = new Vector3(p2.x, y, p2.y);

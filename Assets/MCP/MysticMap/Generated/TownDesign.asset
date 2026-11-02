@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 0}
   m_Name: TownDesign
   m_EditorClassIdentifier: Assembly-CSharp-Editor:MysticMap.EditorTools:TownDesignAsset
-  savedUtc: 2026-10-31 14:21
+  savedUtc: 2026-11-01 12:00
   source: generated
   center: {x: 500, y: 520}
-  fortHX: 78
-  fortHZ: 64
+  fortHX: 156
+  fortHZ: 128
